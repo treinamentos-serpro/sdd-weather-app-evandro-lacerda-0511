@@ -18,6 +18,7 @@ name: Bootstrap branch protection
 #   Settings → Secrets and variables → Actions → New repository secret (SETUP_TOKEN)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -33,15 +34,18 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: Validar token de administração
+        id: setup-token
         env:
           SETUP_TOKEN: ${{ secrets.SETUP_TOKEN }}
         run: |
           if [ -z "$SETUP_TOKEN" ]; then
-            echo "::error::Secret 'SETUP_TOKEN' ausente. Crie um PAT com 'Administration: write' e 'Contents: read' (ou PAT clássico com escopo 'repo') e adicione como secret 'SETUP_TOKEN' em Settings → Secrets and variables → Actions. O workflow não se desabilitará até isso ser configurado; basta dar um novo push na main depois."
-            exit 1
+            echo "::warning::Proteção da main não configurada: secret 'SETUP_TOKEN' ausente. Crie um PAT com 'Administration: write' e 'Contents: read' (ou PAT clássico com escopo 'repo') e adicione como secret 'SETUP_TOKEN' em Settings → Secrets and variables → Actions. O workflow permanecerá habilitado; execute-o manualmente ou faça um novo push na main após configurar o secret."
+            exit 0
           fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Habilitar proteção da branch main
+        if: steps.setup-token.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.SETUP_TOKEN }}
         run: |
@@ -63,6 +67,7 @@ jobs:
           JSON
 
       - name: Configurar estratégia de merge (merge commit + auto-delete)
+        if: steps.setup-token.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.SETUP_TOKEN }}
         run: |
@@ -73,7 +78,8 @@ jobs:
             -F delete_branch_on_merge=true
 
       - name: Autodesabilitar este workflow
+        if: steps.setup-token.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow disable "bootstrap-branch-protection.yml"
+          gh workflow disable "branch-protection.yml" --repo "${{ github.repository }}"

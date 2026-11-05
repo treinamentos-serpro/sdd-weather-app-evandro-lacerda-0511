@@ -66,6 +66,7 @@
 ### T-08 — Implementar consulta da previsão de cinco dias
 - **Tipo:** Data
 - **Descrição:** Consultar e normalizar previsão diária, mantendo datas civis locais.
+- **Etapa combinada:** `getWeather(city)` já normaliza clima atual e cinco dias em uma requisição; isso não conclui as operações independentes previstas em T-07/T-08.
 - **Critérios de aceite:** teste de URL verifica `daily=temperature_2m_min,temperature_2m_max,weather_code`, `forecast_days=5` e `timezone=auto`; fixture válida gera cinco itens alinhados; datas faltantes, duplicadas, não consecutivas ou mínimas/máximas não numéricas rejeitam a operação; código inválido é omitido. **Rastreabilidade:** AC-03.1, AC-03.3–AC-03.5.
 - **Dependências:** T-01, T-03, T-05
 - **Arquivos prováveis:** `src/services/weatherService.ts`
@@ -75,6 +76,7 @@
 ### T-15 — Orquestrar busca e resultados no hook
 - **Tipo:** Data
 - **Descrição:** Controlar termo, submissão e estado dos resultados da busca.
+- **Etapa atual solicitada:** hook agregado com carregamento automático da primeira cidade, seleção alternativa e retry da última operação; diferenças da seleção explícita e do isolamento de seções estão registradas no plano.
 - **Critérios de aceite:** testes do hook confirmam zero chamadas para termo vazio; respostas mockadas produzem estados `loading`, `empty`, `success` e `error`; editar o termo limpa opções antigas imediatamente; uma promessa antiga resolvida por último não substitui os resultados do termo atual. **Rastreabilidade:** AC-01.1–AC-01.6, AC-01.8, AC-06.1.
 - **Dependências:** T-01, T-06
 - **Arquivos prováveis:** `src/hooks/useWeather.ts`
@@ -170,7 +172,7 @@
 ### T-30 — Compor a aplicação
 - **Tipo:** UI
 - **Descrição:** Conectar o hook aos componentes na tela principal.
-- **Protótipo de layout:** usar o mock offline e o controle explícito dos cinco estados descritos no plano para desenvolver a UI. Essa etapa não conclui os critérios de integração com o hook.
+- **Integração atual:** App conectado ao hook agregado, sem mock de produção, com retry e unidade mantida na UI. Seleção explícita e estados independentes permanecem pendentes conforme o plano.
 - **Critérios de aceite:** teste de integração renderiza busca e unidade sem cidade inicial; geolocation não é solicitada; após seleção, cada componente recebe dados/callbacks correspondentes do hook e falha de uma seção não oculta sucesso da outra. **Rastreabilidade:** AC-01.7, AC-06.2, AC-06.5; RF-01–RF-04.
 - **Dependências:** T-45, T-28, T-29
 - **Arquivos prováveis:** `src/App.tsx`

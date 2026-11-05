@@ -108,19 +108,18 @@ Os testes permanecem fora de `src/`, agrupados por escopo:
 
 ## Data Model
 
-### Protótipo offline da UI
+### Integração atual da UI
 
-Para desenvolver o layout antes da integração, `App.tsx` usa
-`src/mocks/weather.ts`, sem chamar serviços. A busca reconhece apenas Recife;
-outros termos apresentam o estado vazio. Um controle identificado como
-demonstração permite visualizar `idle`, `loading`, `empty`, `error` e `success`.
-O carregamento e o erro são simulados manualmente, sem representar consultas reais.
-O mock contém datas fixas de 5 a 9 de novembro de 2026, não uma previsão vigente.
-O teste `tests/e2e/layout.spec.ts` verifica o protótipo em 320, 640, 1024 e
+`App.tsx` usa `useWeather` e renderiza o status agregado da consulta:
+`idle`, `loading`, `empty`, `error` ou `success`. A busca chama o hook e o botão
+de erro chama `retry`. A unidade permanece no estado da UI e não dispara rede.
+O mock e o seletor manual de estados foram removidos da tela; o mock permanece
+como fixture de testes, que interceptam a rede ou simulam os serviços.
+O teste `tests/e2e/layout.spec.ts` verifica a integração em 320, 640, 1024 e
 1440 px, navegação por teclado e contraste de texto de pelo menos 4,5:1.
 Controles têm altura mínima de 44 px; o link de salto leva ao conteúdo principal.
 Temperaturas permanecem em Celsius e são convertidas apenas na renderização.
-Métricas fora do contrato não são exibidas. Esse protótipo não substitui a
+Métricas fora do contrato não são exibidas. Essa etapa não substitui a
 integração com seleção explícita e estados independentes prevista em T-45/T-30.
 
 Contratos de domínio propostos. Valores de temperatura recebidos em Celsius;
@@ -322,6 +321,13 @@ Base URLs HTTPS do Open-Meteo; nenhuma API key é necessária no MVP.
   Se o código estiver ausente/inválido, omitir apenas `weatherCode`; ausência
   de data, mínima ou máxima invalida a seção. Validar exatamente cinco datas
   locais consecutivas, começando hoje.
+- **Operação combinada implementada:** `getWeather(city)` consulta `current` e
+  `daily` em uma única requisição, conforme solicitado para esta etapa. Retorna
+  os contratos em Celsius, valida cinco datas consecutivas e rejeita o agregado
+  se uma seção estiver incompleta. Quando há horário local válido, a primeira
+  data da previsão deve coincidir com sua data civil. Horário e códigos diários
+  inválidos são omitidos. Essa operação não atende ao retry independente:
+  as operações separadas de T-07/T-08 continuam necessárias para a integração final.
 - **Independência das seções:** fazer chamadas separadas ao mesmo endpoint,
   uma com `current` e outra com `daily`. Assim, falha e retry permanecem
   independentes conforme AC-06.2–AC-06.4. Montar `WeatherData` com a `City`
@@ -341,6 +347,24 @@ neste plano: a spec exige erro recuperável e retry manual, mas deixa duração 
 política operacional para decisão dos stakeholders (RNF-03).
 
 ## State Management
+
+### Etapa atual do hook
+
+Conforme solicitado para esta etapa, `useWeather` expõe um status agregado,
+`data`, `cities`, `error` (mensagem ou `null`), `query`, `search`, `selectCity`
+e `retry`. `search` remove espaços externos e, havendo cidades, carrega
+automaticamente o clima da primeira por `getWeather`, mantendo todas as opções.
+Busca sem resultados vira `empty`; termo vazio limpa o estado para `idle` sem rede.
+`selectCity` permite trocar a cidade. `retry` repete a última chamada de serviço:
+busca após falha de geocodificação ou resultado vazio, clima após seleção ou
+falha meteorológica. Uma busca nova substitui a operação anterior de retry.
+Respostas superadas ou recebidas após desmontagem são ignoradas por identidade;
+os serviços continuam responsáveis pelo timeout. A unidade permanece na UI.
+
+Essa seleção automática foi solicitada para o hook atual, mas difere de AC-01.3
+e AC-01.7. O status agregado também não oferece estados/retries independentes.
+A integração final com seleção explícita e isolamento de seções continua
+pendente em T-16/T-17; o App consome o hook agregado nesta etapa.
 
 `useWeather` é dono do estado da consulta da tela: termo atual, resultados da
 busca, cidade selecionada, estados do clima atual e da previsão e unidade
@@ -384,6 +408,12 @@ valores convertidos em estado, evitando conversões acumuladas e refetches.
 (AC-04.2–AC-04.5)
 
 ## Error Handling
+
+O helper compartilhado `fetchWithTimeout` usa um `AbortController` por requisição
+com limite de 10 segundos nesta etapa de desenvolvimento. `AbortError` vira
+`WeatherServiceError` com “A requisição demorou demais.”; falha de rede vira
+“Falha de rede.”. O timer é limpo no `finally`, inclusive em sucesso e falha.
+Esse limite não substitui a aprovação operacional pendente em RNF-03.
 
 - **Rede:** falha de conexão, DNS ou indisponibilidade de rede vira `error` com
   `kind: 'network'`; mostrar mensagem pt-BR e retry da operação correspondente.

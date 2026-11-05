@@ -49,10 +49,9 @@ test('fluxo completo: buscar → clima atual → previsão → trocar unidade', 
   await expect(page.getByRole('heading', { name: 'Seattle' })).toBeVisible();
   await expect(page.getByRole('region', { name: /previsão de 5 dias/i })).toBeVisible();
 
-  // 0°C exibido; após trocar para °F deve virar 32°.
-  await expect(page.getByText('0°').first()).toBeVisible();
+  await expect(page.getByText('0°C', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '°F' }).click();
-  await expect(page.getByText('32°').first()).toBeVisible();
+  await expect(page.getByText('32°F', { exact: true })).toBeVisible();
 });
 
 test('estado vazio quando a cidade não existe', async ({ page }) => {

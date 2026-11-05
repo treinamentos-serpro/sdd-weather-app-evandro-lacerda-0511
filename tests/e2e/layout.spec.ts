@@ -1,11 +1,44 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { mockWeatherData } from '../../src/mocks/weather';
+
+async function mockApis(page: Page) {
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) =>
+    route.fulfill({
+      json: { results: [{ ...mockWeatherData.city, admin1: mockWeatherData.city.region }] },
+    }),
+  );
+  await page.route('**/api.open-meteo.com/**', (route) =>
+    route.fulfill({
+      json: {
+        current: {
+          time: mockWeatherData.current.observedAt,
+          temperature_2m: mockWeatherData.current.temperatureCelsius,
+          weather_code: mockWeatherData.current.weatherCode,
+        },
+        daily: {
+          time: mockWeatherData.forecast.map((day) => day.date),
+          temperature_2m_min: mockWeatherData.forecast.map((day) => day.minimumCelsius),
+          temperature_2m_max: mockWeatherData.forecast.map((day) => day.maximumCelsius),
+          weather_code: mockWeatherData.forecast.map((day) => day.weatherCode),
+        },
+      },
+    }),
+  );
+}
+
+async function search(page: Page) {
+  await page.getByRole('textbox', { name: 'Buscar cidade' }).fill('Recife');
+  await page.getByRole('textbox', { name: 'Buscar cidade' }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Recife' })).toBeVisible();
+}
 
 for (const width of [320, 640, 1024, 1440]) {
-  test(`layout offline sem overflow em ${width}px`, async ({ page }) => {
+  test(`layout integrado sem overflow em ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
+    await mockApis(page);
     await page.goto('/');
-    for (const state of ['idle', 'loading', 'empty', 'error', 'success']) {
-      await page.getByRole('button', { name: state, exact: true }).click();
+    for (const phase of ['idle', 'success']) {
+      if (phase === 'success') await search(page);
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
@@ -29,6 +62,7 @@ for (const width of [320, 640, 1024, 1440]) {
 
 test('busca, unidade, retry e atalho operáveis por teclado', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 });
+  await mockApis(page);
   await page.goto('/');
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Ir para o conteúdo' })).toBeFocused();
@@ -45,17 +79,23 @@ test('busca, unidade, retry e atalho operáveis por teclado', async ({ page }) =
   await page.getByRole('button', { name: '°F' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', { name: '°F' })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'error', exact: true }).focus();
-  await page.keyboard.press('Space');
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) =>
+    route.fulfill({ status: 503, json: {} }),
+  );
+  await input.focus();
+  await input.press('Enter');
   await expect(page.getByRole('alert')).toBeVisible();
+  await page.unroute('**/geocoding-api.open-meteo.com/**');
+  await mockApis(page);
   await page.getByRole('button', { name: 'Tentar novamente' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByText('82°F', { exact: true })).toBeVisible();
 });
 
 test('contraste dos controles ativos e texto secundário', async ({ page }) => {
+  await mockApis(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'success', exact: true }).click();
+  await search(page);
   const ratios = await page.evaluate(() => {
     function rgb(value: string): number[] {
       return (value.match(/[\d.]+/g) ?? []).map(Number);

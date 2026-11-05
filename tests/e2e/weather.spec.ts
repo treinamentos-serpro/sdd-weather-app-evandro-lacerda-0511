@@ -61,7 +61,36 @@ test('estado vazio quando a cidade não existe', async ({ page }) => {
   await page.getByLabel(/buscar cidade/i).fill('xyzxyz');
   await page.getByRole('button', { name: /buscar/i }).click();
 
-  await expect(page.getByText(/nenhuma cidade encontrada/i)).toBeVisible();
+  await expect(
+    page.getByRole('status').getByRole('heading', {
+      name: /nenhuma cidade encontrada/i,
+    }),
+  ).toBeVisible();
+});
+
+test('recupera de falha HTTP ao carregar o clima', async ({ page }) => {
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) =>
+    route.fulfill({ json: geocoding }),
+  );
+  let forecastRequests = 0;
+  await page.route('**/api.open-meteo.com/**', (route) => {
+    forecastRequests += 1;
+    return forecastRequests === 1
+      ? route.fulfill({ status: 503, json: { reason: 'service unavailable' } })
+      : route.fulfill({ json: forecast });
+  });
+  await page.goto('/');
+
+  await page.getByLabel(/buscar cidade/i).fill('Seattle');
+  await page.getByRole('button', { name: /buscar/i }).click();
+  await expect(page.getByRole('alert')).toContainText(
+    'Não foi possível carregar o clima. Tente novamente.',
+  );
+
+  await page.getByRole('button', { name: 'Tentar novamente' }).click();
+  await expect(page.getByRole('region', { name: 'Clima atual' }).getByText('0°C')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Previsão de 5 dias' })).toBeVisible();
+  expect(forecastRequests).toBe(2);
 });
 
 test('viewport mobile renderiza o fluxo principal', async ({ page }) => {
@@ -72,4 +101,9 @@ test('viewport mobile renderiza o fluxo principal', async ({ page }) => {
   await page.getByLabel(/buscar cidade/i).fill('Seattle');
   await page.getByRole('button', { name: /buscar/i }).click();
   await expect(page.getByRole('heading', { name: 'Seattle' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Clima atual' }).getByText('0°C')).toBeVisible();
+
+  const forecastRegion = page.getByRole('region', { name: 'Previsão de 5 dias' });
+  await expect(forecastRegion).toBeVisible();
+  await expect(forecastRegion.getByRole('listitem')).toHaveCount(5);
 });

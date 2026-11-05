@@ -164,10 +164,26 @@ describe('weatherService', () => {
       expect(await searchCities('xyzxyz')).toEqual([]);
     });
 
+    it.each([
+      null,
+      'inválido',
+      {},
+      [null],
+    ])('rejeita payload de geocoding malformado em vez de tratá-lo como vazio: %j', async (results) => {
+      vi.stubGlobal('fetch', mockFetchOnce({ results }));
+      await expect(searchCities('Seattle')).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        message: 'Resposta de busca inválida. Tente novamente.',
+      });
+    });
+
     it('lança erro tipado em resposta não-ok', async () => {
       const fetchSpy = mockFetchOnce({}, false);
       vi.stubGlobal('fetch', fetchSpy);
-      await expect(searchCities('Seattle')).rejects.toBeInstanceOf(WeatherServiceError);
+      await expect(searchCities('Seattle')).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        message: 'Não foi possível buscar a cidade. Tente novamente.',
+      });
       expect(fetchSpy).toHaveBeenCalledOnce();
     });
 
@@ -244,7 +260,10 @@ describe('weatherService', () => {
       { current: {}, daily: null },
     ])('rejeita seções ausentes ou resposta incompleta: %j', async (body) => {
       vi.stubGlobal('fetch', mockFetchOnce(body));
-      await expect(getWeather(CITY)).rejects.toBeInstanceOf(WeatherServiceError);
+      await expect(getWeather(CITY)).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        message: 'Resposta de clima incompleta. Tente novamente.',
+      });
     });
 
     it.each([
@@ -257,7 +276,10 @@ describe('weatherService', () => {
     ])('rejeita clima atual inválido: %j', async (fields) => {
       const body = forecastResponse();
       vi.stubGlobal('fetch', mockFetchOnce({ ...body, current: { ...body.current, ...fields } }));
-      await expect(getWeather(CITY)).rejects.toThrow(WeatherServiceError);
+      await expect(getWeather(CITY)).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        message: 'Resposta de clima incompleta. Tente novamente.',
+      });
     });
 
     it.each([
@@ -280,6 +302,19 @@ describe('weatherService', () => {
       const body = forecastResponse();
       vi.stubGlobal('fetch', mockFetchOnce({ ...body, daily: { ...body.daily, ...fields } }));
       await expect(getWeather(CITY)).rejects.toThrow(WeatherServiceError);
+    });
+
+    it.each([
+      { time: undefined },
+      { temperature_2m_min: undefined },
+      { temperature_2m_max: [] },
+    ])('informa resposta de previsão incompleta para campos obrigatórios ausentes: %j', async (fields) => {
+      const body = forecastResponse();
+      vi.stubGlobal('fetch', mockFetchOnce({ ...body, daily: { ...body.daily, ...fields } }));
+      await expect(getWeather(CITY)).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        message: 'Resposta de previsão incompleta. Tente novamente.',
+      });
     });
 
     it.each([
@@ -318,7 +353,10 @@ describe('weatherService', () => {
 
     it('lança erro tipado para resposta HTTP não-ok', async () => {
       vi.stubGlobal('fetch', mockFetchOnce({}, false));
-      await expect(getWeather(CITY)).rejects.toThrow(WeatherServiceError);
+      await expect(getWeather(CITY)).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        message: 'Não foi possível carregar o clima. Tente novamente.',
+      });
     });
 
     it('lança erro tipado para JSON inválido', async () => {

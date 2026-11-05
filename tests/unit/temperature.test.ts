@@ -20,7 +20,9 @@ describe('temperature', () => {
 
   it('formata com símbolo de grau e arredondamento', () => {
     expect(formatTemperature(20.4, 'celsius')).toBe('20°');
+    expect(formatTemperature(20.5, 'celsius')).toBe('21°');
     expect(formatTemperature(0, 'fahrenheit')).toBe('32°');
+    expect(formatTemperature(20.5, 'fahrenheit')).toBe('69°');
   });
 
   it('retorna o rótulo da unidade', () => {

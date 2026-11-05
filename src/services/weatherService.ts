@@ -53,7 +53,7 @@ export async function searchCities(name: string): Promise<City[]> {
     throw new WeatherServiceError('Não foi possível buscar a cidade. Tente novamente.');
   }
 
-  let data: { results?: GeocodingResult[] };
+  let data: unknown;
   try {
     data = await res.json();
   } catch (err) {
@@ -62,9 +62,16 @@ export async function searchCities(name: string): Promise<City[]> {
     }
     throw err;
   }
-  if (!data.results) return [];
+  if (!isRecord(data)) {
+    throw new WeatherServiceError('Resposta de busca inválida. Tente novamente.');
+  }
+  if (!('results' in data)) return [];
+  const results = data.results;
+  if (!Array.isArray(results) || !results.every(isGeocodingResult)) {
+    throw new WeatherServiceError('Resposta de busca inválida. Tente novamente.');
+  }
 
-  return data.results.map((r) => ({
+  return results.map((r) => ({
     id: r.id,
     name: r.name,
     country: r.country,
@@ -82,6 +89,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isGeocodingResult(value: unknown): value is GeocodingResult {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    isFiniteNumber(value.latitude) &&
+    isFiniteNumber(value.longitude) &&
+    (value.id === undefined || isFiniteNumber(value.id)) &&
+    (value.country === undefined || typeof value.country === 'string') &&
+    (value.admin1 === undefined || typeof value.admin1 === 'string') &&
+    (value.country_code === undefined || typeof value.country_code === 'string') &&
+    (value.timezone === undefined || typeof value.timezone === 'string')
+  );
 }
 
 function isWeatherCode(value: unknown): value is number {

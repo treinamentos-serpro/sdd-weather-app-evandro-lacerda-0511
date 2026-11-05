@@ -110,5 +110,5 @@ export function useWeather(): UseWeatherResult {
 
 function toMessage(err: unknown): string {
   if (err instanceof WeatherServiceError) return err.message;
-  return 'Algo deu errado. Tente novamente.';
+  return 'Não foi possível concluir a consulta. Tente novamente.';
 }

@@ -255,9 +255,11 @@ Base URLs HTTPS do Open-Meteo; nenhuma API key é necessária no MVP.
 - **Mapeamento para `City`:** `id` → `id`; `name` → `name`; `latitude` e
   `longitude` mantêm o mesmo nome; `admin1` → `region`; `country` → `country`;
   `country_code` → `countryCode`; `timezone` → `timezone`. Propriedades de
-  localização que não vierem na resposta permanecem opcionais. Não selecionar
-  automaticamente um resultado. Resposta sem resultados é estado vazio;
-  falha HTTP, timeout ou JSON inválido é erro recuperável.
+  localização nulas, ausentes ou inválidas são omitidas; nome e coordenadas são
+  obrigatórios e devem ser válidos. `results` ausente ou nulo equivale a busca
+  sem resultados. Não selecionar automaticamente um resultado. Resposta sem
+  resultados é estado vazio; falha HTTP, timeout ou JSON inválido é erro
+  recuperável.
 
 ### Forecast
 
@@ -294,7 +296,8 @@ Base URLs HTTPS do Open-Meteo; nenhuma API key é necessária no MVP.
 
 - **Mapeamento para `CurrentWeather`:** `current.temperature_2m` →
   `temperatureCelsius`; `current.weather_code` → `weatherCode`; `current.time`
-  → `observedAt`. Validar que os campos obrigatórios são valores válidos.
+  → `observedAt`. Temperatura e código são obrigatórios e devem ser válidos;
+  horário nulo, ausente ou inválido é omitido.
 - **Resposta resumida de previsão (esquemática):** o exemplo mostra dois dos
   cinco itens; a resposta usada pela aplicação deve conter os cinco.
 
@@ -318,9 +321,11 @@ Base URLs HTTPS do Open-Meteo; nenhuma API key é necessária no MVP.
   `daily.temperature_2m_min`, `daily.temperature_2m_max` e `daily.weather_code`
   são alinhadas pelo índice. Cada índice gera um item: `time` → `date`, mínima
   → `minimumCelsius`, máxima → `maximumCelsius`, código WMO → `weatherCode`.
-  Se o código estiver ausente/inválido, omitir apenas `weatherCode`; ausência
-  de data, mínima ou máxima invalida a seção. Validar exatamente cinco datas
-  locais consecutivas, começando hoje.
+  Se o array/código estiver ausente, nulo ou inválido, omitir apenas
+  `weatherCode`; ausência ou invalidade de data, mínima ou máxima invalida a
+  seção. Na apresentação, valores não finitos/ausentes recebem `—`, sem gerar
+  valor meteorológico presumido. Validar exatamente cinco datas locais
+  consecutivas, começando hoje.
 - **Operação combinada implementada:** `getWeather(city)` consulta `current` e
   `daily` em uma única requisição, conforme solicitado para esta etapa. Retorna
   os contratos em Celsius, valida cinco datas consecutivas e rejeita o agregado

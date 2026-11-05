@@ -14,6 +14,7 @@ const CITY: City = {
 function mockFetchOnce(body: unknown, ok = true) {
   return vi.fn().mockResolvedValue({
     ok,
+    status: ok ? 200 : 503,
     json: async () => body,
   } as Response);
 }
@@ -45,11 +46,44 @@ describe('weatherService', () => {
       const request = searchCities('Recife');
       const rejection = expect(request).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'A requisição demorou demais.',
+        kind: 'timeout',
+        message:
+          'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
       });
       await vi.advanceTimersByTimeAsync(9_999);
       expect(signal?.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
+      await rejection;
+      expect(signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('mantém o timeout ativo até terminar a leitura do JSON', async () => {
+      vi.useFakeTimers();
+      let signal: AbortSignal | undefined;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((_url: string, options: RequestInit) => {
+          signal = options.signal ?? undefined;
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise<unknown>((_resolve, reject) => {
+                signal?.addEventListener('abort', () =>
+                  reject(new DOMException('Aborted', 'AbortError')),
+                );
+              }),
+          } as Response);
+        }),
+      );
+      const request = searchCities('Recife');
+      const rejection = expect(request).rejects.toMatchObject({
+        kind: 'timeout',
+        message:
+          'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
       await rejection;
       expect(signal?.aborted).toBe(true);
       expect(vi.getTimerCount()).toBe(0);
@@ -63,17 +97,21 @@ describe('weatherService', () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error));
       await expect(searchCities('Recife')).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'A requisição demorou demais.',
+        kind: 'timeout',
+        message:
+          'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
       });
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('converte falha de rede e limpa o timer', async () => {
+    it('converte falha de rede offline em mensagem amigável e limpa o timer', async () => {
       vi.useFakeTimers();
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
       await expect(getWeather(CITY)).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Falha de rede.',
+        kind: 'network',
+        message:
+          'Não foi possível conectar. Verifique sua conexão com a internet e tente novamente.',
       });
       expect(vi.getTimerCount()).toBe(0);
     });
@@ -162,18 +200,72 @@ describe('weatherService', () => {
     it('retorna vazio quando não há results', async () => {
       vi.stubGlobal('fetch', mockFetchOnce({}));
       expect(await searchCities('xyzxyz')).toEqual([]);
+      vi.stubGlobal('fetch', mockFetchOnce({ results: [] }));
+      expect(await searchCities('xyzxyz')).toEqual([]);
+    });
+
+    it('trata results null e metadados opcionais null como ausentes', async () => {
+      vi.stubGlobal('fetch', mockFetchOnce({ results: null }));
+      expect(await searchCities('xyzxyz')).toEqual([]);
+
+      vi.stubGlobal(
+        'fetch',
+        mockFetchOnce({
+          results: [
+            {
+              id: null,
+              name: 'Recife',
+              country: null,
+              admin1: null,
+              latitude: -8.0539,
+              longitude: -34.8811,
+              country_code: null,
+              timezone: null,
+            },
+          ],
+        }),
+      );
+      expect(await searchCities('Recife')).toEqual([
+        { name: 'Recife', latitude: -8.0539, longitude: -34.8811 },
+      ]);
+    });
+
+    it('ignora metadados opcionais de geocodificação com tipo inválido', async () => {
+      vi.stubGlobal(
+        'fetch',
+        mockFetchOnce({
+          results: [
+            {
+              id: '1',
+              name: 'Recife',
+              country: 123,
+              admin1: {},
+              latitude: -8.0539,
+              longitude: -34.8811,
+              country_code: false,
+              timezone: [],
+            },
+          ],
+        }),
+      );
+      expect(await searchCities('Recife')).toEqual([
+        { name: 'Recife', latitude: -8.0539, longitude: -34.8811 },
+      ]);
     });
 
     it.each([
-      null,
       'inválido',
       {},
       [null],
+      [{ name: null, latitude: -8.05, longitude: -34.88 }],
+      [{ name: 'Recife', latitude: null, longitude: -34.88 }],
+      [{ name: 'Recife', latitude: -8.05, longitude: null }],
     ])('rejeita payload de geocoding malformado em vez de tratá-lo como vazio: %j', async (results) => {
       vi.stubGlobal('fetch', mockFetchOnce({ results }));
       await expect(searchCities('Seattle')).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Resposta de busca inválida. Tente novamente.',
+        kind: 'invalid-response',
+        message: 'A resposta de busca é inválida. Tente novamente.',
       });
     });
 
@@ -182,7 +274,9 @@ describe('weatherService', () => {
       vi.stubGlobal('fetch', fetchSpy);
       await expect(searchCities('Seattle')).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Não foi possível buscar a cidade. Tente novamente.',
+        kind: 'api',
+        statusCode: 503,
+        message: 'O serviço de busca está indisponível no momento. Tente novamente.',
       });
       expect(fetchSpy).toHaveBeenCalledOnce();
     });
@@ -195,7 +289,11 @@ describe('weatherService', () => {
           json: vi.fn().mockRejectedValue(new SyntaxError('Invalid JSON')),
         }),
       );
-      await expect(searchCities('Seattle')).rejects.toThrow(WeatherServiceError);
+      await expect(searchCities('Seattle')).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        kind: 'invalid-response',
+        message: 'A resposta de busca é inválida. Tente novamente.',
+      });
     });
 
     it('lança erro tipado em falha de rede', async () => {
@@ -262,15 +360,18 @@ describe('weatherService', () => {
       vi.stubGlobal('fetch', mockFetchOnce(body));
       await expect(getWeather(CITY)).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Resposta de clima incompleta. Tente novamente.',
+        kind: 'invalid-response',
+        message: 'A resposta de clima está incompleta. Tente novamente.',
       });
     });
 
     it.each([
       { temperature_2m: null },
+      { temperature_2m: undefined },
       { temperature_2m: '18' },
       { temperature_2m: NaN },
       { temperature_2m: Infinity },
+      { weather_code: null },
       { weather_code: undefined },
       { weather_code: -1 },
     ])('rejeita clima atual inválido: %j', async (fields) => {
@@ -278,13 +379,15 @@ describe('weatherService', () => {
       vi.stubGlobal('fetch', mockFetchOnce({ ...body, current: { ...body.current, ...fields } }));
       await expect(getWeather(CITY)).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Resposta de clima incompleta. Tente novamente.',
+        kind: 'invalid-response',
+        message: 'A resposta de clima está incompleta. Tente novamente.',
       });
     });
 
     it.each([
       { time: undefined },
       { time: [] },
+      { time: [null, '2026-06-17', '2026-06-18', '2026-06-19', '2026-06-20'] },
       { time: ['2026-06-16', '2026-06-17', '2026-06-18', '2026-06-19'] },
       {
         time: ['2026-06-16', '2026-06-17', '2026-06-18', '2026-06-19', '2026-06-20', '2026-06-21'],
@@ -293,7 +396,9 @@ describe('weatherService', () => {
       { time: ['2026-06-16', '2026-06-18', '2026-06-19', '2026-06-20', '2026-06-21'] },
       { time: ['2026-02-30', '2026-03-01', '2026-03-02', '2026-03-03', '2026-03-04'] },
       { temperature_2m_min: undefined },
+      { temperature_2m_min: null },
       { temperature_2m_max: [] },
+      { temperature_2m_max: [20, 19, null, 24, 25] },
       { temperature_2m_min: [12, 11, null, 14, 15] },
       { temperature_2m_max: [20, 19, '22', 24, 25] },
       { temperature_2m_max: [20, 19, NaN, 24, 25] },
@@ -306,19 +411,23 @@ describe('weatherService', () => {
 
     it.each([
       { time: undefined },
+      { time: null },
       { temperature_2m_min: undefined },
+      { temperature_2m_min: null },
       { temperature_2m_max: [] },
     ])('informa resposta de previsão incompleta para campos obrigatórios ausentes: %j', async (fields) => {
       const body = forecastResponse();
       vi.stubGlobal('fetch', mockFetchOnce({ ...body, daily: { ...body.daily, ...fields } }));
       await expect(getWeather(CITY)).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Resposta de previsão incompleta. Tente novamente.',
+        kind: 'invalid-response',
+        message: 'A resposta de previsão está incompleta. Tente novamente.',
       });
     });
 
     it.each([
       undefined,
+      null,
       'inválido',
       '2026-02-30T12:00',
       '2026-06-16T25:00',
@@ -344,6 +453,19 @@ describe('weatherService', () => {
       expect(forecast[0]).not.toHaveProperty('precipitationProbability');
     });
 
+    it.each([
+      undefined,
+      null,
+      'inválido',
+    ])('omite o campo weather_code diário inteiro quando ausente ou inválido: %s', async (weatherCode) => {
+      const body = forecastResponse();
+      const daily = { ...body.daily, weather_code: weatherCode };
+      vi.stubGlobal('fetch', mockFetchOnce({ ...body, daily }));
+      const { forecast } = await getWeather(CITY);
+      expect(forecast).toHaveLength(5);
+      for (const day of forecast) expect(day).not.toHaveProperty('weatherCode');
+    });
+
     it('rejeita intervalo que não começa na data local observada', async () => {
       const body = forecastResponse();
       body.current.time = '2026-06-15T23:00';
@@ -355,7 +477,9 @@ describe('weatherService', () => {
       vi.stubGlobal('fetch', mockFetchOnce({}, false));
       await expect(getWeather(CITY)).rejects.toMatchObject({
         name: 'WeatherServiceError',
-        message: 'Não foi possível carregar o clima. Tente novamente.',
+        kind: 'api',
+        statusCode: 503,
+        message: 'O serviço de clima está indisponível no momento. Tente novamente.',
       });
     });
 
@@ -367,7 +491,11 @@ describe('weatherService', () => {
           json: vi.fn().mockRejectedValue(new SyntaxError('Invalid JSON')),
         }),
       );
-      await expect(getWeather(CITY)).rejects.toThrow(WeatherServiceError);
+      await expect(getWeather(CITY)).rejects.toMatchObject({
+        name: 'WeatherServiceError',
+        kind: 'invalid-response',
+        message: 'A resposta de clima é inválida. Tente novamente.',
+      });
     });
   });
 });

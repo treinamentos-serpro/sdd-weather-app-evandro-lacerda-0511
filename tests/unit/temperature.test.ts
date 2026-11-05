@@ -3,6 +3,7 @@ import {
   toFahrenheit,
   convertTemperature,
   formatTemperature,
+  formatTemperatureWithUnit,
   unitLabel,
 } from '../../src/lib/temperature';
 
@@ -23,6 +24,15 @@ describe('temperature', () => {
     expect(formatTemperature(20.5, 'celsius')).toBe('21°');
     expect(formatTemperature(0, 'fahrenheit')).toBe('32°');
     expect(formatTemperature(20.5, 'fahrenheit')).toBe('69°');
+  });
+
+  it('usa travessão para temperaturas ausentes, inválidas ou não finitas', () => {
+    expect(formatTemperature(null, 'celsius')).toBe('—');
+    expect(formatTemperature(undefined, 'fahrenheit')).toBe('—');
+    expect(formatTemperature(Number.NaN, 'celsius')).toBe('—');
+    expect(formatTemperature(Number.POSITIVE_INFINITY, 'fahrenheit')).toBe('—');
+    expect(formatTemperatureWithUnit(null, 'celsius')).toBe('—');
+    expect(formatTemperatureWithUnit(20, 'fahrenheit')).toBe('68°F');
   });
 
   it('retorna o rótulo da unidade', () => {

@@ -17,6 +17,13 @@ describe('format', () => {
     expect(getShortDate('2026-06-16')).toBe('16 Jun');
   });
 
+  it('usa travessão para datas ausentes ou inválidas', () => {
+    expect(getDayLabel('', 2)).toBe('—');
+    expect(getDayLabel(undefined, 0)).toBe('—');
+    expect(getShortDate(null)).toBe('—');
+    expect(getShortDate('2026-02-30')).toBe('—');
+  });
+
   it('mantém a data civil em fusos horários diferentes', () => {
     try {
       vi.stubEnv('TZ', 'UTC');

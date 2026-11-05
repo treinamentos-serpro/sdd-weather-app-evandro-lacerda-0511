@@ -107,14 +107,19 @@ describe('useWeather', () => {
     expect(weatherMock).not.toHaveBeenCalled();
   });
 
-  it('mostra erro de busca e retry refaz o termo novo, não o clima da cidade anterior', async () => {
+  it('mostra erro offline e retry refaz o termo atual quando a conexão retorna', async () => {
     const { result } = renderHook(() => useWeather());
     await act(async () => result.current.search('Recife'));
-    searchMock.mockRejectedValueOnce(new WeatherServiceError('Falha de rede.'));
+    searchMock.mockRejectedValueOnce(
+      new WeatherServiceError(
+        'Não foi possível conectar. Verifique sua conexão com a internet e tente novamente.',
+        'network',
+      ),
+    );
     await act(async () => result.current.search('Lisboa'));
     expect(result.current).toMatchObject({
       status: 'error',
-      error: 'Falha de rede.',
+      error: 'Não foi possível conectar. Verifique sua conexão com a internet e tente novamente.',
       query: 'Lisboa',
       data: null,
       cities: [],
@@ -128,12 +133,18 @@ describe('useWeather', () => {
   });
 
   it('mostra erro de clima preservando cidades e retry refaz somente getWeather', async () => {
-    weatherMock.mockRejectedValueOnce(new WeatherServiceError('A requisição demorou demais.'));
+    weatherMock.mockRejectedValueOnce(
+      new WeatherServiceError(
+        'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
+        'timeout',
+      ),
+    );
     const { result } = renderHook(() => useWeather());
     await act(async () => result.current.search('Recife'));
     expect(result.current).toMatchObject({
       status: 'error',
-      error: 'A requisição demorou demais.',
+      error:
+        'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
       cities: [city, otherCity],
       data: null,
     });
@@ -165,7 +176,7 @@ describe('useWeather', () => {
     await act(async () => result.current.search('Recife'));
     expect(result.current).toMatchObject({
       status: 'error',
-      error: 'Algo deu errado. Tente novamente.',
+      error: 'Não foi possível concluir a consulta. Tente novamente.',
     });
   });
 
@@ -205,7 +216,7 @@ describe('useWeather', () => {
     await act(async () => result.current.selectCity(otherCity));
     await act(async () => {
       if (outcome === 'resolve') pending.resolve(mockWeatherData);
-      else pending.reject(new WeatherServiceError('Falha de rede.'));
+      else pending.reject(new WeatherServiceError('Falha de rede.', 'network'));
       await oldRequest;
     });
     expect(result.current).toMatchObject({ status: 'success', data: otherWeather, error: null });

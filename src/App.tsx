@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Unit } from './types/weather';
 import { useWeather } from './hooks/useWeather';
 import SearchBar from './components/SearchBar';
@@ -13,6 +13,20 @@ import EmptyState from './components/states/EmptyState';
 export default function App() {
   const { status, data, error, query, search, retry } = useWeather();
   const [unit, setUnit] = useState<Unit>('celsius');
+  const resultsRef = useRef<HTMLElement>(null);
+  const wasLoading = useRef(false);
+
+  useEffect(() => {
+    if (status === 'loading') {
+      wasLoading.current = true;
+      return;
+    }
+
+    if (wasLoading.current && (status === 'success' || status === 'empty')) {
+      resultsRef.current?.focus();
+    }
+    wasLoading.current = false;
+  }, [status]);
 
   return (
     <div className="min-h-screen bg-night-900 text-white">
@@ -37,31 +51,43 @@ export default function App() {
         </div>
       </header>
 
-      <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl space-y-8 px-4 py-8">
-        {status === 'idle' && (
-          <EmptyState
-            title="Busque uma cidade para começar"
-            hint="Ex.: Recife, Lisboa, São Paulo…"
-          />
-        )}
-
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="mx-auto max-w-5xl space-y-8 px-4 py-8 focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-accent-400"
+      >
         {status === 'loading' && <LoadingState />}
 
-        {status === 'empty' && (
-          <EmptyState
-            title={`Nenhuma cidade encontrada para "${query}"`}
-            hint="Verifique a grafia e tente novamente."
-          />
-        )}
+        <section
+          ref={resultsRef}
+          aria-label="Resultados da busca"
+          aria-busy={status === 'loading'}
+          tabIndex={-1}
+          className="space-y-8 focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-accent-400"
+        >
+          {status === 'idle' && (
+            <EmptyState
+              title="Busque uma cidade para começar"
+              hint="Ex.: Recife, Lisboa, São Paulo…"
+            />
+          )}
 
-        {status === 'error' && error !== null && <ErrorState message={error} onRetry={retry} />}
+          {status === 'empty' && (
+            <EmptyState
+              title={`Nenhuma cidade encontrada para "${query}"`}
+              hint="Verifique a grafia e tente novamente."
+            />
+          )}
 
-        {status === 'success' && data !== null && (
-          <>
-            <CurrentWeather city={data.city} current={data.current} unit={unit} />
-            <ForecastList forecast={data.forecast} unit={unit} />
-          </>
-        )}
+          {status === 'error' && error !== null && <ErrorState message={error} onRetry={retry} />}
+
+          {status === 'success' && data !== null && (
+            <>
+              <CurrentWeather city={data.city} current={data.current} unit={unit} />
+              <ForecastList forecast={data.forecast} unit={unit} />
+            </>
+          )}
+        </section>
       </main>
 
       <footer className="px-4 py-8 text-center text-sm text-white/70">

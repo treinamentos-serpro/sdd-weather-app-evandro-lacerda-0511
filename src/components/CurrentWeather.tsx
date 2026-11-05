@@ -1,6 +1,6 @@
 import type { CurrentWeather as CurrentWeatherType, City, Unit } from '../types/weather';
-import { formatTemperature } from '../lib/temperature';
-import { getWeatherIcon, getWeatherLabel } from '../lib/weatherCodes';
+import { formatTemperatureWithUnit } from '../lib/temperature';
+import { getWeatherIcon, getWeatherLabel, isWeatherCode } from '../lib/weatherCodes';
 
 interface CurrentWeatherProps {
   city: City;
@@ -10,7 +10,11 @@ interface CurrentWeatherProps {
 
 /** Seção "hero" com as condições atuais da cidade selecionada. */
 export default function CurrentWeather({ city, current, unit }: CurrentWeatherProps) {
-  const location = [city.region, city.country].filter(Boolean).join(', ');
+  const location = [city.region, city.country]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(', ');
+  const cityName = typeof city.name === 'string' && city.name.trim() ? city.name : '—';
+  const hasWeatherCode = isWeatherCode(current.weatherCode);
 
   return (
     <section
@@ -19,19 +23,20 @@ export default function CurrentWeather({ city, current, unit }: CurrentWeatherPr
     >
       <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <h2 className="break-words text-2xl font-bold md:text-3xl">{city.name}</h2>
+          <h2 className="break-words text-2xl font-bold md:text-3xl">{cityName}</h2>
           {location && <p className="text-white/60">{location}</p>}
 
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <span aria-hidden="true" className="text-6xl">
-              {getWeatherIcon(current.weatherCode)}
+              {hasWeatherCode ? getWeatherIcon(current.weatherCode) : '—'}
             </span>
             <span className="text-5xl font-light sm:text-6xl md:text-7xl">
-              {formatTemperature(current.temperatureCelsius, unit)}
-              {unit === 'celsius' ? 'C' : 'F'}
+              {formatTemperatureWithUnit(current.temperatureCelsius, unit)}
             </span>
           </div>
-          <p className="mt-2 text-white/70">{getWeatherLabel(current.weatherCode)}</p>
+          <p className="mt-2 text-white/70">
+            {hasWeatherCode ? getWeatherLabel(current.weatherCode) : 'Condição indisponível'}
+          </p>
         </div>
       </div>
     </section>

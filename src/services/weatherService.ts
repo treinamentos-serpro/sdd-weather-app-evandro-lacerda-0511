@@ -1,42 +1,68 @@
-import type { City, CurrentWeather, ForecastDay, WeatherData } from '../types/weather';
+import type {
+  City,
+  CurrentWeather,
+  ForecastDay,
+  WeatherData,
+  WeatherError,
+} from '../types/weather';
+import { isWeatherCode } from '../lib/weatherCodes';
 
 const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const REQUEST_TIMEOUT_MS = 10_000;
+const NETWORK_ERROR_MESSAGE =
+  'Não foi possível conectar. Verifique sua conexão com a internet e tente novamente.';
+const TIMEOUT_ERROR_MESSAGE =
+  'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.';
 
 /** Erro tipado da camada de dados, com mensagem amigável ao usuário. */
 export class WeatherServiceError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly kind: WeatherError['kind'],
+    readonly statusCode?: number,
+  ) {
     super(message);
     this.name = 'WeatherServiceError';
   }
 }
 
-/** Faz um fetch com timeout via AbortController. */
-async function fetchWithTimeout(url: string): Promise<Response> {
+/** Mantém o timeout ativo até a leitura do corpo da resposta. */
+async function fetchJsonWithTimeout(
+  url: string,
+  resource: 'busca' | 'clima',
+): Promise<{ response: Response; data?: unknown }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return { response };
+    return { response, data: await response.json() };
   } catch (err) {
     if (typeof err === 'object' && err !== null && 'name' in err && err.name === 'AbortError') {
-      throw new WeatherServiceError('A requisição demorou demais.');
+      throw new WeatherServiceError(TIMEOUT_ERROR_MESSAGE, 'timeout');
     }
-    throw new WeatherServiceError('Falha de rede.');
+    if (err instanceof SyntaxError) {
+      throw new WeatherServiceError(
+        `A resposta de ${resource} é inválida. Tente novamente.`,
+        'invalid-response',
+      );
+    }
+    throw new WeatherServiceError(NETWORK_ERROR_MESSAGE, 'network');
   } finally {
     clearTimeout(timeout);
   }
 }
 
 interface GeocodingResult {
-  id?: number;
+  id?: unknown;
   name: string;
-  country?: string;
-  admin1?: string;
+  country?: unknown;
+  admin1?: unknown;
   latitude: number;
   longitude: number;
-  country_code?: string;
-  timezone?: string;
+  country_code?: unknown;
+  timezone?: unknown;
 }
 
 /**
@@ -48,39 +74,48 @@ export async function searchCities(name: string): Promise<City[]> {
   if (!query) return [];
 
   const url = `${GEOCODING_URL}?name=${encodeURIComponent(query)}&count=10&language=pt&format=json`;
-  const res = await fetchWithTimeout(url);
+  const { response: res, data } = await fetchJsonWithTimeout(url, 'busca');
   if (!res.ok) {
-    throw new WeatherServiceError('Não foi possível buscar a cidade. Tente novamente.');
+    throw new WeatherServiceError(
+      'O serviço de busca está indisponível no momento. Tente novamente.',
+      'api',
+      res.status,
+    );
   }
 
-  let data: unknown;
-  try {
-    data = await res.json();
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      throw new WeatherServiceError('Resposta de busca inválida. Tente novamente.');
-    }
-    throw err;
-  }
   if (!isRecord(data)) {
-    throw new WeatherServiceError('Resposta de busca inválida. Tente novamente.');
+    throw new WeatherServiceError(
+      'A resposta de busca é inválida. Tente novamente.',
+      'invalid-response',
+    );
   }
-  if (!('results' in data)) return [];
+  if (!('results' in data) || data.results === null || data.results === undefined) return [];
   const results = data.results;
   if (!Array.isArray(results) || !results.every(isGeocodingResult)) {
-    throw new WeatherServiceError('Resposta de busca inválida. Tente novamente.');
+    throw new WeatherServiceError(
+      'A resposta de busca é inválida. Tente novamente.',
+      'invalid-response',
+    );
   }
 
-  return results.map((r) => ({
-    id: r.id,
-    name: r.name,
-    country: r.country,
-    region: r.admin1,
-    countryCode: r.country_code,
-    timezone: r.timezone,
-    latitude: r.latitude,
-    longitude: r.longitude,
-  }));
+  return results.map((result) => {
+    const city: City = {
+      name: result.name,
+      latitude: result.latitude,
+      longitude: result.longitude,
+    };
+    const id = optionalFiniteNumber(result.id);
+    const country = optionalString(result.country);
+    const region = optionalString(result.admin1);
+    const countryCode = optionalString(result.country_code);
+    const timezone = optionalString(result.timezone);
+    if (id !== undefined) city.id = id;
+    if (country !== undefined) city.country = country;
+    if (region !== undefined) city.region = region;
+    if (countryCode !== undefined) city.countryCode = countryCode;
+    if (timezone !== undefined) city.timezone = timezone;
+    return city;
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -91,22 +126,22 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function optionalFiniteNumber(value: unknown): number | undefined {
+  return isFiniteNumber(value) ? value : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
 function isGeocodingResult(value: unknown): value is GeocodingResult {
   return (
     isRecord(value) &&
     typeof value.name === 'string' &&
+    value.name.trim().length > 0 &&
     isFiniteNumber(value.latitude) &&
-    isFiniteNumber(value.longitude) &&
-    (value.id === undefined || isFiniteNumber(value.id)) &&
-    (value.country === undefined || typeof value.country === 'string') &&
-    (value.admin1 === undefined || typeof value.admin1 === 'string') &&
-    (value.country_code === undefined || typeof value.country_code === 'string') &&
-    (value.timezone === undefined || typeof value.timezone === 'string')
+    isFiniteNumber(value.longitude)
   );
-}
-
-function isWeatherCode(value: unknown): value is number {
-  return isFiniteNumber(value) && Number.isInteger(value) && value >= 0;
 }
 
 function isCivilDate(value: unknown): value is string {
@@ -117,7 +152,10 @@ function isCivilDate(value: unknown): value is string {
 
 function mapCurrent(current: Record<string, unknown>): CurrentWeather {
   if (!isFiniteNumber(current.temperature_2m) || !isWeatherCode(current.weather_code)) {
-    throw new WeatherServiceError('Resposta de clima incompleta. Tente novamente.');
+    throw new WeatherServiceError(
+      'A resposta de clima está incompleta. Tente novamente.',
+      'invalid-response',
+    );
   }
   const result: CurrentWeather = {
     temperatureCelsius: current.temperature_2m,
@@ -145,7 +183,10 @@ function mapForecast(daily: Record<string, unknown>): ForecastDay[] {
     !Array.isArray(maximums) ||
     maximums.length !== 5
   ) {
-    throw new WeatherServiceError('Resposta de previsão incompleta. Tente novamente.');
+    throw new WeatherServiceError(
+      'A resposta de previsão está incompleta. Tente novamente.',
+      'invalid-response',
+    );
   }
   let previousTimestamp: number | undefined;
   return dates.map((date: unknown, index: number) => {
@@ -157,12 +198,18 @@ function mapForecast(daily: Record<string, unknown>): ForecastDay[] {
       !isFiniteNumber(maximum) ||
       minimum > maximum
     ) {
-      throw new WeatherServiceError('Resposta de previsão inválida. Tente novamente.');
+      throw new WeatherServiceError(
+        'A resposta de previsão é inválida. Tente novamente.',
+        'invalid-response',
+      );
     }
     // UTC é usado apenas para comparar datas civis, sem aplicar o fuso do navegador.
     const timestamp = Date.parse(`${date}T00:00:00Z`);
     if (previousTimestamp !== undefined && timestamp !== previousTimestamp + 86_400_000) {
-      throw new WeatherServiceError('Resposta de previsão inválida. Tente novamente.');
+      throw new WeatherServiceError(
+        'A resposta de previsão é inválida. Tente novamente.',
+        'invalid-response',
+      );
     }
     previousTimestamp = timestamp;
     const result: ForecastDay = { date, minimumCelsius: minimum, maximumCelsius: maximum };
@@ -187,28 +234,32 @@ export async function getWeather(city: City): Promise<WeatherData> {
     timezone: 'auto',
   });
 
-  const res = await fetchWithTimeout(`${FORECAST_URL}?${params.toString()}`);
+  const { response: res, data } = await fetchJsonWithTimeout(
+    `${FORECAST_URL}?${params.toString()}`,
+    'clima',
+  );
   if (!res.ok) {
-    throw new WeatherServiceError('Não foi possível carregar o clima. Tente novamente.');
+    throw new WeatherServiceError(
+      'O serviço de clima está indisponível no momento. Tente novamente.',
+      'api',
+      res.status,
+    );
   }
 
-  let data: unknown;
-  try {
-    data = await res.json();
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      throw new WeatherServiceError('Resposta de clima inválida. Tente novamente.');
-    }
-    throw err;
-  }
   if (!isRecord(data) || !isRecord(data.current) || !isRecord(data.daily)) {
-    throw new WeatherServiceError('Resposta de clima incompleta. Tente novamente.');
+    throw new WeatherServiceError(
+      'A resposta de clima está incompleta. Tente novamente.',
+      'invalid-response',
+    );
   }
 
   const current = mapCurrent(data.current);
   const forecast = mapForecast(data.daily);
   if (current.observedAt && forecast[0].date !== current.observedAt.slice(0, 10)) {
-    throw new WeatherServiceError('Resposta de previsão inválida. Tente novamente.');
+    throw new WeatherServiceError(
+      'A resposta de previsão é inválida. Tente novamente.',
+      'invalid-response',
+    );
   }
   return { city, current, forecast };
 }

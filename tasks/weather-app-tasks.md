@@ -170,6 +170,7 @@
 ### T-30 — Compor a aplicação
 - **Tipo:** UI
 - **Descrição:** Conectar o hook aos componentes na tela principal.
+- **Protótipo de layout:** usar o mock offline e o controle explícito dos cinco estados descritos no plano para desenvolver a UI. Essa etapa não conclui os critérios de integração com o hook.
 - **Critérios de aceite:** teste de integração renderiza busca e unidade sem cidade inicial; geolocation não é solicitada; após seleção, cada componente recebe dados/callbacks correspondentes do hook e falha de uma seção não oculta sucesso da outra. **Rastreabilidade:** AC-01.7, AC-06.2, AC-06.5; RF-01–RF-04.
 - **Dependências:** T-45, T-28, T-29
 - **Arquivos prováveis:** `src/App.tsx`

@@ -108,6 +108,21 @@ Os testes permanecem fora de `src/`, agrupados por escopo:
 
 ## Data Model
 
+### Protótipo offline da UI
+
+Para desenvolver o layout antes da integração, `App.tsx` usa
+`src/mocks/weather.ts`, sem chamar serviços. A busca reconhece apenas Recife;
+outros termos apresentam o estado vazio. Um controle identificado como
+demonstração permite visualizar `idle`, `loading`, `empty`, `error` e `success`.
+O carregamento e o erro são simulados manualmente, sem representar consultas reais.
+O mock contém datas fixas de 5 a 9 de novembro de 2026, não uma previsão vigente.
+O teste `tests/e2e/layout.spec.ts` verifica o protótipo em 320, 640, 1024 e
+1440 px, navegação por teclado e contraste de texto de pelo menos 4,5:1.
+Controles têm altura mínima de 44 px; o link de salto leva ao conteúdo principal.
+Temperaturas permanecem em Celsius e são convertidas apenas na renderização.
+Métricas fora do contrato não são exibidas. Esse protótipo não substitui a
+integração com seleção explícita e estados independentes prevista em T-45/T-30.
+
 Contratos de domínio propostos. Valores de temperatura recebidos em Celsius;
 Fahrenheit é uma representação de UI, não uma segunda fonte de dados.
 

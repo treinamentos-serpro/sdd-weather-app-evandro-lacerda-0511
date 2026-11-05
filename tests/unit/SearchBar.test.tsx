@@ -42,21 +42,27 @@ describe('SearchBar', () => {
     expect(onSearch).toHaveBeenCalledExactlyOnceWith("São João d'Aliança");
   });
 
-  it('bloqueia input e submissão quando disabled e permite buscar ao reabilitar', async () => {
+  it('mantém o foco durante o carregamento e bloqueia novas submissões', async () => {
     const onSearch = vi.fn();
     const { rerender } = render(<SearchBar onSearch={onSearch} />);
     const input = screen.getByLabelText(/buscar cidade/i);
     await userEvent.type(input, 'Recife');
+    input.focus();
 
     rerender(<SearchBar onSearch={onSearch} disabled />);
-    expect(input).toBeDisabled();
-    expect(screen.getByRole('button', { name: /buscar/i })).toBeDisabled();
+    expect(input).toHaveAttribute('readonly');
+    expect(input).toHaveFocus();
+    expect(screen.getByRole('search')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: /buscar/i })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
     await userEvent.click(screen.getByRole('button', { name: /buscar/i }));
     fireEvent.submit(screen.getByRole('search'));
     expect(onSearch).not.toHaveBeenCalled();
 
     rerender(<SearchBar onSearch={onSearch} disabled={false} />);
-    expect(input).toBeEnabled();
+    expect(input).not.toHaveAttribute('readonly');
     await userEvent.type(input, '{Enter}');
     expect(onSearch).toHaveBeenCalledExactlyOnceWith('Recife');
   });

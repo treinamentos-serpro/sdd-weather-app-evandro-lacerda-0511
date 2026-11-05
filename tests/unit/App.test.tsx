@@ -24,6 +24,12 @@ describe('App', () => {
   it('renderiza marca, busca, unidade e idle sem consultar os serviços', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: 'WeatherView' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ir para o conteúdo' })).toHaveAttribute(
+      'href',
+      '#main-content',
+    );
+    expect(document.getElementById('main-content')).toHaveAttribute('tabindex', '-1');
+    expect(document.getElementById('main-content')).toHaveClass('focus:outline-accent-400');
     expect(screen.getByText(/busque uma cidade para começar/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/buscar cidade/i)).toBeEnabled();
     expect(screen.getByRole('button', { name: '°C', pressed: true })).toBeInTheDocument();
@@ -40,6 +46,7 @@ describe('App', () => {
     const original = JSON.stringify(mockWeatherData);
     render(<App />);
     await user.type(screen.getByLabelText(/buscar cidade/i), '  Recife  {Enter}');
+    expect(screen.getByRole('region', { name: 'Resultados da busca' })).toHaveFocus();
     const current = await screen.findByRole('region', { name: 'Clima atual' });
     expect(within(current).getByText('28°C')).toBeInTheDocument();
     expect(within(current).getByText('Pernambuco, Brasil')).toBeInTheDocument();
@@ -64,6 +71,46 @@ describe('App', () => {
     expect(JSON.stringify(mockWeatherData)).toBe(original);
   });
 
+  it('mostra fallbacks seguros para dados inválidos sem exibir NaN ou undefined', async () => {
+    weatherMock.mockResolvedValue({
+      ...mockWeatherData,
+      city: { ...mockWeatherData.city, name: '' },
+      current: {
+        ...mockWeatherData.current,
+        temperatureCelsius: Number.NaN,
+        weatherCode: -1,
+      },
+      forecast: mockWeatherData.forecast.map((day, index) =>
+        index === 0
+          ? {
+              ...day,
+              date: '',
+              minimumCelsius: Number.NaN,
+              maximumCelsius: Number.POSITIVE_INFINITY,
+              weatherCode: -1,
+            }
+          : day,
+      ),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText(/buscar cidade/i), 'Recife{Enter}');
+
+    const current = await screen.findByRole('region', { name: 'Clima atual' });
+    expect(within(current).getByRole('heading', { name: '—' })).toBeInTheDocument();
+    expect(within(current).getAllByText('—', { selector: 'span' })).toHaveLength(2);
+    expect(within(current).getByText('Condição indisponível')).toBeInTheDocument();
+
+    const forecast = within(
+      screen.getByRole('region', { name: 'Previsão de 5 dias' }),
+    ).getAllByRole('listitem');
+    expect(forecast[0]).toHaveTextContent('—');
+    expect(forecast[0]).toHaveTextContent('Máx: —');
+    expect(forecast[0]).toHaveTextContent('Mín: —');
+    expect(within(forecast[0]).queryByRole('img')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/NaN|undefined|null/);
+  });
+
   it('mostra loading durante a busca e empty com o termo consultado', async () => {
     let resolve!: (cities: City[]) => void;
     searchMock.mockReturnValueOnce(
@@ -75,21 +122,39 @@ describe('App', () => {
     render(<App />);
     await user.type(screen.getByLabelText(/buscar cidade/i), 'xyzxyz{Enter}');
     expect(screen.getByRole('status')).toHaveTextContent('Carregando o clima');
-    expect(screen.getByLabelText(/buscar cidade/i)).toBeDisabled();
+    expect(screen.getByLabelText(/buscar cidade/i)).toHaveAttribute('readonly');
+    expect(screen.getByLabelText(/buscar cidade/i)).toHaveFocus();
+    expect(screen.getByRole('search')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('region', { name: 'Resultados da busca' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
     expect(screen.queryByRole('region', { name: 'Clima atual' })).not.toBeInTheDocument();
     await act(async () => resolve([]));
     expect(screen.getByRole('status')).toHaveTextContent('Nenhuma cidade encontrada para "xyzxyz"');
-    expect(screen.getByLabelText(/buscar cidade/i)).toBeEnabled();
+    expect(screen.getByLabelText(/buscar cidade/i)).not.toHaveAttribute('readonly');
+    expect(screen.getByRole('region', { name: 'Resultados da busca' })).toHaveFocus();
+    expect(screen.getByRole('region', { name: 'Resultados da busca' })).toHaveAttribute(
+      'aria-busy',
+      'false',
+    );
     expect(weatherMock).not.toHaveBeenCalled();
   });
 
   it('erro de busca chama retry do hook e preserva unidade', async () => {
-    searchMock.mockRejectedValueOnce(new WeatherServiceError('Falha de rede.'));
+    searchMock.mockRejectedValueOnce(
+      new WeatherServiceError(
+        'Não foi possível conectar. Verifique sua conexão com a internet e tente novamente.',
+        'network',
+      ),
+    );
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: '°F' }));
     await user.type(screen.getByLabelText(/buscar cidade/i), 'Recife{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha de rede.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível conectar. Verifique sua conexão com a internet e tente novamente.',
+    );
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
     expect(await screen.findByText('82°F')).toBeInTheDocument();
     expect(searchMock.mock.calls).toEqual([['Recife'], ['Recife']]);
@@ -102,9 +167,16 @@ describe('App', () => {
     render(<App />);
     await user.type(screen.getByLabelText(/buscar cidade/i), 'Recife{Enter}');
     expect(await screen.findByText('28°C')).toBeInTheDocument();
-    weatherMock.mockRejectedValueOnce(new WeatherServiceError('A requisição demorou demais.'));
+    weatherMock.mockRejectedValueOnce(
+      new WeatherServiceError(
+        'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
+        'timeout',
+      ),
+    );
     await user.click(screen.getByRole('button', { name: 'Buscar' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('A requisição demorou demais.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A solicitação excedeu o limite de 10 segundos. Verifique sua conexão e tente novamente.',
+    );
     expect(screen.queryByRole('region', { name: 'Clima atual' })).not.toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));

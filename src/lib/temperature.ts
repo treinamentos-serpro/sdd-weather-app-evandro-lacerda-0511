@@ -17,9 +17,18 @@ export function convertTemperature(celsius: number, unit: Unit): number {
  * Formata uma temperatura (armazenada em Celsius) para exibição na unidade
  * escolhida, arredondando para inteiro e adicionando o símbolo de grau.
  */
-export function formatTemperature(celsius: number, unit: Unit): string {
-  const value = Math.round(convertTemperature(celsius, unit));
+export function formatTemperature(celsius: number | null | undefined, unit: Unit): string {
+  if (typeof celsius !== 'number' || !Number.isFinite(celsius)) return '—';
+  const converted = convertTemperature(celsius, unit);
+  if (!Number.isFinite(converted)) return '—';
+  const value = Math.round(converted);
   return `${value}°`;
+}
+
+export function formatTemperatureWithUnit(celsius: number | null | undefined, unit: Unit): string {
+  const temperature = formatTemperature(celsius, unit);
+  if (temperature === '—') return temperature;
+  return `${temperature}${unit === 'celsius' ? 'C' : 'F'}`;
 }
 
 /** Rótulo curto da unidade atual (°C / °F). */

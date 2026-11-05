@@ -21,6 +21,7 @@ export default function SearchBar({ onSearch, disabled }: SearchBarProps) {
     <form
       role="search"
       aria-label="Pesquisa de cidades"
+      aria-busy={disabled}
       onSubmit={handleSubmit}
       className="w-full min-w-0 max-w-md"
     >
@@ -34,17 +35,24 @@ export default function SearchBar({ onSearch, disabled }: SearchBarProps) {
         <input
           id={inputId}
           type="text"
-          disabled={disabled}
+          readOnly={disabled}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Buscar cidade…"
           autoComplete="off"
-          className="min-h-11 min-w-0 flex-1 rounded bg-transparent text-white placeholder-white/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="min-h-11 min-w-0 flex-1 rounded bg-transparent text-white placeholder-white/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 read-only:cursor-wait read-only:opacity-70"
         />
         <button
           type="submit"
-          disabled={disabled || !value.trim()}
-          className="min-h-11 shrink-0 rounded-lg bg-accent-400 px-4 py-1.5 text-sm font-semibold text-night-900 transition hover:bg-accent-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={disabled || !value.trim()}
+          disabled={!value.trim()}
+          className={`min-h-11 shrink-0 rounded-lg bg-accent-400 px-4 py-1.5 text-sm font-semibold text-night-900 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-400 ${
+            disabled
+              ? 'cursor-wait opacity-50'
+              : !value.trim()
+                ? 'cursor-not-allowed opacity-50'
+                : 'hover:bg-accent-500'
+          }`}
         >
           Buscar
         </button>

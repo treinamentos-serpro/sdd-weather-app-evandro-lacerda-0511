@@ -46,6 +46,7 @@ test('fluxo completo: buscar → clima atual → previsão → trocar unidade', 
   await page.getByLabel(/buscar cidade/i).fill('Seattle');
   await page.getByRole('button', { name: /buscar/i }).click();
 
+  await expect(page.getByRole('region', { name: 'Resultados da busca' })).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Seattle' })).toBeVisible();
   await expect(page.getByRole('region', { name: /previsão de 5 dias/i })).toBeVisible();
 
@@ -54,8 +55,58 @@ test('fluxo completo: buscar → clima atual → previsão → trocar unidade', 
   await expect(page.getByText('32°F', { exact: true })).toBeVisible();
 });
 
+test('busca vazia ou com apenas espaços não consulta geocodificação', async ({ page }) => {
+  let geocodingRequests = 0;
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) => {
+    geocodingRequests += 1;
+    return route.fulfill({ json: geocoding });
+  });
+  await page.goto('/');
+
+  const search = page.getByLabel(/buscar cidade/i);
+  const submit = page.getByRole('button', { name: /buscar/i });
+  await expect(submit).toBeDisabled();
+  await search.press('Enter');
+  await search.fill('   ');
+  await expect(submit).toBeDisabled();
+  await search.press('Enter');
+
+  expect(geocodingRequests).toBe(0);
+  await expect(page.getByRole('status')).toContainText('Busque uma cidade para começar');
+});
+
+test('preserva acentos e pontuação interna na consulta de geocodificação', async ({ page }) => {
+  const query = 'São Paulo & região/centro?';
+  let receivedName: string | null = null;
+  let forecastRequests = 0;
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) => {
+    receivedName = new URL(route.request().url()).searchParams.get('name');
+    return route.fulfill({ json: { results: [] } });
+  });
+  await page.route('**/api.open-meteo.com/**', (route) => {
+    forecastRequests += 1;
+    return route.fulfill({ json: forecast });
+  });
+  await page.goto('/');
+
+  await page.getByLabel(/buscar cidade/i).fill(`  ${query}  `);
+  await page.getByRole('button', { name: /buscar/i }).click();
+
+  await expect(page.getByRole('status')).toContainText(`Nenhuma cidade encontrada para "${query}"`);
+  expect(receivedName).toBe(query);
+  expect(forecastRequests).toBe(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('estado vazio quando a cidade não existe', async ({ page }) => {
-  await page.route('**/geocoding-api.open-meteo.com/**', (route) => route.fulfill({ json: {} }));
+  let forecastRequests = 0;
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) =>
+    route.fulfill({ json: { results: [] } }),
+  );
+  await page.route('**/api.open-meteo.com/**', (route) => {
+    forecastRequests += 1;
+    return route.fulfill({ json: forecast });
+  });
   await page.goto('/');
 
   await page.getByLabel(/buscar cidade/i).fill('xyzxyz');
@@ -66,6 +117,47 @@ test('estado vazio quando a cidade não existe', async ({ page }) => {
       name: /nenhuma cidade encontrada/i,
     }),
   ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Resultados da busca' })).toBeFocused();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByLabel(/buscar cidade/i)).toBeEditable();
+  expect(forecastRequests).toBe(0);
+});
+
+test('marca forecast incompleto como erro e permite retry', async ({ page }) => {
+  await page.route('**/geocoding-api.open-meteo.com/**', (route) =>
+    route.fulfill({ json: geocoding }),
+  );
+  let forecastRequests = 0;
+  await page.route('**/api.open-meteo.com/**', (route) => {
+    forecastRequests += 1;
+    if (forecastRequests === 1) {
+      return route.fulfill({
+        json: {
+          current: forecast.current,
+          daily: {
+            time: forecast.daily.time,
+            weather_code: forecast.daily.weather_code,
+            temperature_2m_min: forecast.daily.temperature_2m_min,
+          },
+        },
+      });
+    }
+    return route.fulfill({ json: forecast });
+  });
+  await page.goto('/');
+
+  await page.getByLabel(/buscar cidade/i).fill('Seattle');
+  await page.getByRole('button', { name: /buscar/i }).click();
+  await expect(page.getByRole('alert')).toContainText(
+    'A resposta de previsão está incompleta. Tente novamente.',
+  );
+  await expect(page.getByRole('region', { name: 'Clima atual' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Previsão de 5 dias' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Tentar novamente' }).click();
+  await expect(page.getByRole('region', { name: 'Clima atual' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Previsão de 5 dias' })).toBeVisible();
+  expect(forecastRequests).toBe(2);
 });
 
 test('recupera de falha HTTP ao carregar o clima', async ({ page }) => {
@@ -84,7 +176,7 @@ test('recupera de falha HTTP ao carregar o clima', async ({ page }) => {
   await page.getByLabel(/buscar cidade/i).fill('Seattle');
   await page.getByRole('button', { name: /buscar/i }).click();
   await expect(page.getByRole('alert')).toContainText(
-    'Não foi possível carregar o clima. Tente novamente.',
+    'O serviço de clima está indisponível no momento. Tente novamente.',
   );
 
   await page.getByRole('button', { name: 'Tentar novamente' }).click();
